@@ -35,12 +35,24 @@ int relayPin1 = 11; // relay (sensor-1)
 int relayPin2 = 12; // relay (sensor-1)
 /////////////////////////////////////////////////////
 
-int mSensorValue = 0;  // variable to store the value coming from the sensor
 int onOff = HIGH;
 int beepOn = LOW;
 uint32_t delayMS;
 long previousMillis = 0;
 long interval = 120000;
+int sleep_time = 0;
+long prevRelayMS = 0;
+const long intervalRelayMS = 5000;
+const int max_sleep_time = 10;
+#define RS_SAMPLE 0
+#define RS_FIRST 1
+#define RS_SECOND 2
+#define RS_MAX (RS_SECOND+1)
+
+int relayState = RS_SAMPLE;
+int mSensorValue[RS_MAX];  // variable to store the value coming from the sensor
+
+
 
 void setup_pins()
 {
@@ -106,15 +118,18 @@ void setup_lcd()
   lcd.home();
   lcd.setCursor(0, 0);
   // Turn on the blacklight and print a message.
-  //lcd.backlight();
+  //lcd.noBacklight();
+  lcd.backlight();
   //lcd.noAutoscroll();
   //lcd.autoscroll();
   print_it("Hello world!!!", false);
   //lcd.print("Hello, world!");
   //lcd.print("Hello, world!");
+  update_relays();
 }
 
 void setup() {
+  memset(mSensorValue, 0, sizeof(mSensorValue));
   setup_pins();
   setup_lcd();
   setup_dht();
@@ -139,18 +154,58 @@ int check_m_sensor_black(int value)
   }
   return GREEN;
 }
+
 int check_m_sensor(int value) 
 {
   return check_m_sensor_black(value);
 }
+
+
+void process_relay_states()
+{
+  bool changeState = false;
+  unsigned long currMS = millis();
+  if ( currMS - prevRelayMS > intervalRelayMS ) {
+      prevRelayMS = currMS;
+      changeState = true;
+  } else if (currMS < prevRelayMS) 
+  {
+      // forced reset
+      prevRelayMS = currMS;   
+      changeState = true;
+  }
+  else {
+  }
+  if (changeState) {
+    if (sleep_time > 0) {
+      sleep_time -= 1;
+    }
+    else {
+      relayState += 1;
+      if (relayState >= RS_MAX) {
+        relayState = 0;
+        sleep_time = max_sleep_time;
+      }
+      update_relays();
+    }
+  }
+}
+
+void update_relays()
+{ 
+  Serial.print("R-State: ");
+  Serial.print(relayState);
+  int first  = (relayState & 0x01)?HIGH:LOW;
+  int second = (relayState & 0x02)?HIGH:LOW;
+  digitalWrite(relayPin1, first);
+  digitalWrite(relayPin2, second);
+  delay(200); // anti-bounce
+}
+
 void loop() {
   char io_buff[50];
   char str_temp[6];
   memset(io_buff, 0, sizeof(io_buff));
-  // read the value from the sensor:
-  mSensorValue = analogRead(mSensorPinA);    
-  // todo: digital read
-  // todo: btn support
   // Reading temperature or humidity takes about 250 milliseconds!
   sensors_event_t event;  
   dht.temperature().getEvent(&event);
@@ -186,12 +241,29 @@ void loop() {
     sprintf(io_buff, "%s", str_temp); 
     print_it(io_buff, false);
   }
+  process_relay_states();
+  // read the value from the sensor:
+  mSensorValue[relayState] = analogRead(mSensorPinA);    
+  // todo: digital read
+  // todo: btn support
   Serial.print("M-sensor: ");                       
-  Serial.println(mSensorValue);                   
-  Serial.print("btn: ");                       
+  for (int i = 0; i < RS_MAX; i++) {
+    sprintf(io_buff, "M%d:%04d ", i, mSensorValue[i]); 
+    Serial.print(io_buff);                   
+  }
+  sprintf(io_buff, " MD%d:%d ", relayState, digitalRead(mSensorPinD)); 
+  Serial.println(io_buff);                       
+  Serial.print("Btn: ");                       
   Serial.println(digitalRead(btnPin));                       
   lcd.setCursor(0, 1);
-  sprintf(io_buff, "M:%03d", mSensorValue); 
+  if (sleep_time > 0) {
+    Serial.print("Sleep time: ");                       
+    Serial.println(sleep_time);                       
+    sprintf(io_buff, "-:%04d/%04d/%04d", mSensorValue[0], mSensorValue[1], mSensorValue[2]); 
+  }
+  else {
+    sprintf(io_buff, "%d:%04d/%04d/%04d", relayState, mSensorValue[0], mSensorValue[1], mSensorValue[2]); 
+  }
   print_it(io_buff, false);
   int doIt = LOW;
   unsigned long currentMillis = millis();
@@ -204,7 +276,7 @@ void loop() {
   }
   else {
   }
-  switch(check_m_sensor(mSensorValue)) {
+  switch(check_m_sensor(mSensorValue[relayState])) {
     case RED:
       // red condition
       digitalWrite(ledR, onOff);   // turn the LED on (HIGH is the voltage level)
