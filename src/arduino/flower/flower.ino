@@ -13,12 +13,13 @@
 DHT_Unified dht(DHTPIN, DHTTYPE);
 
 int mSensorPin = A1;    // select the input pin for the potentiometer
-int mSensorValue = 0;  // variable to store the value coming from the sensor
 int ledPin = 7;
 int ledR = 11;
 int ledG = 9;
 int ledB = 8;
 int beepPin = 12;
+
+int mSensorValue = 0;  // variable to store the value coming from the sensor
 int onOff = HIGH;
 int beepOn = LOW;
 uint32_t delayMS;
